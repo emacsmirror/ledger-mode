@@ -451,7 +451,7 @@ With prefix ARG, decrement by that many instead."
               '(ledger-font-lock-keywords t nil nil nil))
   (add-hook 'font-lock-extend-region-functions #'ledger-fontify-extend-region nil t)
   (add-hook 'completion-at-point-functions #'ledger-complete-at-point nil t)
-  (add-hook 'after-save-hook 'ledger-report-redo nil t)
+  (add-hook 'after-save-hook 'ledger-report-redo-after-save nil t)
 
   (add-hook 'post-command-hook 'ledger-highlight-xact-under-point nil t)
   (add-hook 'before-revert-hook 'ledger-highlight--before-revert nil t)
