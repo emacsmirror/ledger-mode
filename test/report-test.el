@@ -229,6 +229,10 @@
       (kill-buffer ledger-report-buffer-name)))
   (should-error (ledger-report-quit)))
 
+(ert-deftest ledger-report/edit-report-not-in-mode ()
+  (with-temp-buffer
+    (should-error (ledger-report-edit-report))))
+
 (ert-deftest ledger-report/edit-report ()
   (ledger-tests-with-temp-file ""
     (ledger-report "bal" nil)
@@ -384,6 +388,7 @@
     (setq ledger-reconcile-default-commodity "USD")
     (ledger-report "reg" nil)
     (with-current-buffer ledger-report-buffer-name
+      (should-not (string-match-p "--exchange USD" (buffer-string)))
       (ledger-report-toggle-default-commodity)
       (should (string-match-p "--exchange USD" (buffer-string)))
       ;; Toggle off again.
@@ -711,6 +716,31 @@ to `ledger-binary-path' between runs are honored."
         ;; buffer where it was created.
         (save-buffer)
         (should (= reports-run 2))))))
+
+(ert-deftest ledger-report/sticky-cursor ()
+  "`ledger-report-auto-refresh-sticky-cursor' preserves cursor line"
+  :tags '(report)
+  (ledger-tests-with-temp-file "
+2025-01-01 Foo
+    Expense  $1
+    Asset
+
+2025-01-02 Bar
+    Expense  $1
+    Asset"
+    (save-buffer)
+    (setq ledger-report-auto-refresh-sticky-cursor t)
+    (setq ledger-reports '(("X" "%(binary) -f %(ledger-file) payees")))
+    (ledger-report "X" nil)
+    (with-current-buffer ledger-report-buffer-name
+      (re-search-forward (rx line-start "Bar" line-end))
+      (goto-char (match-beginning 0))
+      (should (equal (buffer-substring (point) (point-max))
+                     "Bar\nFoo\n"))
+      (forward-line)
+      (should (looking-at "Foo"))
+      (ledger-report-redo)
+      (should (looking-at "Foo")))))
 
 (provide 'report-test)
 
