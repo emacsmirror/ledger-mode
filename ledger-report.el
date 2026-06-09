@@ -201,10 +201,11 @@ See documentation for the function `ledger-master-file'")
     (save-excursion
       (reverse-region (point) (point-max)))))
 
-(defun ledger-report-maybe-shrink-window ()
-  "Shrink window if `ledger-report-resize-window' is non-nil."
+(defun ledger-report-maybe-shrink-window (buf)
+  "Shrink window displaying BUF if `ledger-report-resize-window' is non-nil."
   (when ledger-report-resize-window
-    (shrink-window-if-larger-than-buffer)))
+    (when-let* ((w (get-buffer-window buf)))
+      (shrink-window-if-larger-than-buffer w))))
 
 (defvar ledger-report-mode-map
   (let ((map (make-sparse-keymap)))
@@ -321,7 +322,7 @@ used to generate the buffer, navigating the buffer, etc."
       (with-silent-modifications
         (erase-buffer)
         (ledger-do-report ledger-report-cmd))
-      (ledger-report-maybe-shrink-window)
+      (ledger-report-maybe-shrink-window (current-buffer))
       (run-hooks 'ledger-report-after-report-hook)
       (message (substitute-command-keys (concat "\\[ledger-report-quit] to quit; "
                                                 "\\[ledger-report-redo] to redo; "
@@ -598,7 +599,7 @@ specific posting at point instead."
     (if (not rbuf)
         (error "There is no ledger report buffer"))
     (pop-to-buffer rbuf)
-    (ledger-report-maybe-shrink-window)))
+    (ledger-report-maybe-shrink-window rbuf)))
 
 (defun ledger-report-redo (&optional _ignore-auto _noconfirm)
   "Redo the report in the current ledger report buffer.
@@ -622,7 +623,7 @@ IGNORE-AUTO and NOCONFIRM are for compatibility with
           (ledger-report-reverse-lines))
         (when ledger-report-auto-refresh-sticky-cursor
           (forward-line (- ledger-report-cursor-line-number 5))))
-      (ledger-report-maybe-shrink-window)
+      (ledger-report-maybe-shrink-window (current-buffer))
       (run-hooks 'ledger-report-after-report-hook)
       (pop-to-buffer cur-buf))))
 
