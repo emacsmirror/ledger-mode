@@ -32,6 +32,7 @@
 (declare-function ledger-read-string-with-default "ledger-mode" (prompt default))
 (declare-function ledger-read-account-with-prompt "ledger-mode" (prompt))
 (declare-function ledger-read-payee-with-prompt "ledger-mode" (prompt))
+(declare-function ledger-read-date "ledger-mode" (prompt))
 
 (require 'easymenu)
 (require 'ansi-color)
@@ -70,6 +71,8 @@ specifier."
     ("payee" . ledger-report-payee-format-specifier)
     ("account" . ledger-report-account-format-specifier)
     ("month" . ledger-report-month-format-specifier)
+    ("amount" . ledger-report-amount-format-specifier)
+    ("date" . ledger-report-date-format-specifier)
     ("tagname" . ledger-report-tagname-format-specifier)
     ("tagvalue" . ledger-report-tagvalue-format-specifier))
   "An alist mapping ledger report format specifiers to implementing functions.
@@ -263,6 +266,14 @@ See documentation for the function `ledger-master-file'")
   ;; It is intended completion should be available on existing tag
   ;; values, but it remains to be implemented.
   (ledger-read-string-with-default "Tag Value" nil))
+
+(defun ledger-report-amount-format-specifier ()
+  "Return a commoditized amount."
+  (ledger-commodity-to-string (ledger-read-commodity-string "Amount")))
+
+(defun ledger-report-date-format-specifier ()
+  "Return a date."
+  (ledger-read-date "Date: "))
 
 (defun ledger-report-read-name ()
   "Read the name of a ledger report to use, with completion.
