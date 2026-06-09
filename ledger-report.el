@@ -614,7 +614,6 @@ IGNORE-AUTO and NOCONFIRM are for compatibility with
                (with-current-buffer ledger-report-buffer-name
                  (buffer-live-p ledger-report-ledger-buf)))
       (pop-to-buffer (get-buffer ledger-report-buffer-name))
-      (ledger-report-maybe-shrink-window)
       (setq ledger-report-cursor-line-number (line-number-at-pos))
       (with-silent-modifications
         (erase-buffer)
@@ -623,6 +622,7 @@ IGNORE-AUTO and NOCONFIRM are for compatibility with
           (ledger-report-reverse-lines))
         (when ledger-report-auto-refresh-sticky-cursor
           (forward-line (- ledger-report-cursor-line-number 5))))
+      (ledger-report-maybe-shrink-window)
       (run-hooks 'ledger-report-after-report-hook)
       (pop-to-buffer cur-buf))))
 
