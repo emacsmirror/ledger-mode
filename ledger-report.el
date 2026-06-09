@@ -201,10 +201,11 @@ See documentation for the function `ledger-master-file'")
     (save-excursion
       (reverse-region (point) (point-max)))))
 
-(defun ledger-report-maybe-shrink-window ()
-  "Shrink window if `ledger-report-resize-window' is non-nil."
+(defun ledger-report-maybe-shrink-window (buf)
+  "Shrink window displaying BUF if `ledger-report-resize-window' is non-nil."
   (when ledger-report-resize-window
-    (shrink-window-if-larger-than-buffer)))
+    (when-let* ((w (get-buffer-window buf)))
+      (shrink-window-if-larger-than-buffer w))))
 
 (defvar ledger-report-mode-map
   (let ((map (make-sparse-keymap)))
@@ -245,7 +246,7 @@ See documentation for the function `ledger-master-file'")
 
 (define-derived-mode ledger-report-mode special-mode "Ledger-Report"
   "A mode for viewing ledger reports."
-  (setq-local revert-buffer-function #'ledger-report-redo)
+  (setq-local revert-buffer-function #'ledger-report--revert-buffer)
   (hack-dir-local-variables-non-file-buffer))
 
 (defconst ledger-report--extra-args-marker "[[ledger-mode-flags]]")
@@ -321,7 +322,7 @@ used to generate the buffer, navigating the buffer, etc."
       (with-silent-modifications
         (erase-buffer)
         (ledger-do-report ledger-report-cmd))
-      (ledger-report-maybe-shrink-window)
+      (ledger-report-maybe-shrink-window (current-buffer))
       (run-hooks 'ledger-report-after-report-hook)
       (message (substitute-command-keys (concat "\\[ledger-report-quit] to quit; "
                                                 "\\[ledger-report-redo] to redo; "
@@ -515,7 +516,7 @@ report was first run."
          (previous-month (ledger-report--shift-month current-month shift)))
     (setq ledger-report-current-month previous-month)
     (ledger-report-cmd ledger-report-name nil)
-    (ledger-report-redo)))
+    (revert-buffer)))
 
 (defun ledger-report--add-links ()
   "Replace file and line annotations with buttons."
@@ -598,33 +599,42 @@ specific posting at point instead."
     (if (not rbuf)
         (error "There is no ledger report buffer"))
     (pop-to-buffer rbuf)
-    (ledger-report-maybe-shrink-window)))
+    (ledger-report-maybe-shrink-window rbuf)))
 
-(defun ledger-report-redo (&optional _ignore-auto _noconfirm)
-  "Redo the report in the current ledger report buffer.
+(defun ledger-report-redo-after-save ()
+  "If `ledger-report-auto-refresh' is non-nil, redo the report buffer.
+
+This is intended to be added to `after-save-hook' by `ledger-mode'."
+  (when (and ledger-report-auto-refresh
+             (get-buffer ledger-report-buffer-name))
+    (with-current-buffer ledger-report-buffer-name
+      (revert-buffer))))
+
+(defun ledger-report--revert-buffer (&optional _ignore-auto _noconfirm)
+  "Redo the report in the current buffer.
 IGNORE-AUTO and NOCONFIRM are for compatibility with
 `revert-buffer-function' and are currently ignored."
+  (when (buffer-live-p ledger-report-ledger-buf)
+    (setq ledger-report-cursor-line-number (line-number-at-pos))
+    (with-silent-modifications
+      (erase-buffer)
+      (ledger-do-report ledger-report-cmd)
+      (when ledger-report-is-reversed
+        (ledger-report-reverse-lines))
+      (when ledger-report-auto-refresh-sticky-cursor
+        (forward-line (- ledger-report-cursor-line-number 5))))
+    (ledger-report-maybe-shrink-window (current-buffer))
+    (run-hooks 'ledger-report-after-report-hook)))
+
+(defun ledger-report-redo ()
+  "Redo the report in the ledger report buffer."
   (interactive)
   (unless (or (derived-mode-p 'ledger-mode)
               (derived-mode-p 'ledger-report-mode))
     (user-error "Not in a ledger-mode or ledger-report-mode buffer"))
-  (let ((cur-buf (current-buffer)))
-    (when (and ledger-report-auto-refresh
-               (get-buffer ledger-report-buffer-name)
-               (with-current-buffer ledger-report-buffer-name
-                 (buffer-live-p ledger-report-ledger-buf)))
-      (pop-to-buffer (get-buffer ledger-report-buffer-name))
-      (ledger-report-maybe-shrink-window)
-      (setq ledger-report-cursor-line-number (line-number-at-pos))
-      (with-silent-modifications
-        (erase-buffer)
-        (ledger-do-report ledger-report-cmd)
-        (when ledger-report-is-reversed
-          (ledger-report-reverse-lines))
-        (when ledger-report-auto-refresh-sticky-cursor
-          (forward-line (- ledger-report-cursor-line-number 5))))
-      (run-hooks 'ledger-report-after-report-hook)
-      (pop-to-buffer cur-buf))))
+  (when (get-buffer ledger-report-buffer-name)
+    (with-current-buffer ledger-report-buffer-name
+      (revert-buffer))))
 
 (defun ledger-report-quit ()
   "Quit the ledger report buffer and kill its buffer."
@@ -643,8 +653,11 @@ IGNORE-AUTO and NOCONFIRM are for compatibility with
 (defun ledger-report-edit-report ()
   "Edit the current report command in the mini buffer and re-run the report."
   (interactive)
-  (setq ledger-report-cmd (ledger-report-read-command ledger-report-cmd))
-  (ledger-report-redo))
+  (unless (derived-mode-p 'ledger-report-mode)
+    (user-error "Not a ledger report buffer"))
+  (with-current-buffer ledger-report-buffer-name
+    (setq ledger-report-cmd (ledger-report-read-command ledger-report-cmd))
+    (revert-buffer)))
 
 (define-obsolete-function-alias 'ledger-report-select-report #'ledger-report "ledger 4.0.0")
 
@@ -702,7 +715,7 @@ IGNORE-AUTO and NOCONFIRM are for compatibility with
         (setq ledger-report-cmd (replace-match "" nil nil ledger-report-cmd))
       (setq ledger-report-cmd (concat ledger-report-cmd
                                       " --exchange " ledger-reconcile-default-commodity))))
-  (ledger-report-redo))
+  (revert-buffer))
 
 (provide 'ledger-report)
 

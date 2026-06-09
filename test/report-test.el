@@ -116,27 +116,21 @@
     (should (string= "2024-4" (ledger-report-month-format-specifier)))))
 
 (ert-deftest ledger-report/expand-format-specifiers ()
-  ;; Substitute %(month) and %(foo).  Needs both a ledger-buf and the report
-  ;; buffer because month-format-specifier-default switches there.
-  ;;
-  ;; `src-buf' can be an arbitrary buffer here.
-  (let ((src-buf (current-buffer)))
-    (unwind-protect
-        (with-current-buffer (get-buffer-create ledger-report-buffer-name)
-          (ledger-report-mode)
-          (setq ledger-report-current-month '(2024 . 4)
-                ledger-report-ledger-buf src-buf)
-          (let* ((ledger-report-format-specifiers
-                  '(("month" . ledger-report-month-format-specifier)
-                    ("foo" . (lambda () "QUOTED ME"))))
-                 (result (ledger-report-expand-format-specifiers
-                          "ledger -p %(month) reg %(foo)")))
-            (should (string-match-p "ledger -p 2024-4 reg" result))
-            ;; shell-quote-argument escapes the space, so the literal output
-            ;; contains "QUOTED\ ME".
-            (should (string-match-p "QUOTED" result))
-            (should (string-match-p "ME" result))))
-      (kill-buffer ledger-report-buffer-name))))
+  "Substitute %(month) and %(foo)."
+  (ledger-tests-with-temp-file ""
+    (setq ledger-report-format-specifiers
+          '(("month" . ledger-report-month-format-specifier)
+            ("foo" . (lambda () "QUOTED ME")))
+          ledger-reports '(("X" "ledger -p %(month) reg %(foo) -f %(ledger-file)")))
+    (ledger-report "X" nil)
+    (with-current-buffer ledger-report-buffer-name
+      (setq ledger-report-current-month '(2024 . 4))
+      (ledger-report-redo)
+      (should (string-match-p "ledger -p 2024-4 reg" (buffer-string)))
+      ;; shell-quote-argument escapes the space, so the literal output
+      ;; contains "QUOTED\ ME".
+      (should (string-match-p "QUOTED" (buffer-string)))
+      (should (string-match-p "ME" (buffer-string))))))
 
 (ert-deftest ledger-report/expand-format-specifiers-list ()
   ;; A list-returning specifier is space-joined, not shell-quoted.
@@ -235,15 +229,18 @@
       (kill-buffer ledger-report-buffer-name)))
   (should-error (ledger-report-quit)))
 
+(ert-deftest ledger-report/edit-report-not-in-mode ()
+  (with-temp-buffer
+    (should-error (ledger-report-edit-report))))
+
 (ert-deftest ledger-report/edit-report ()
-  ;; ledger-report-edit-report reads a new command and re-runs.
-  (cl-letf (((symbol-function 'read-from-minibuffer)
-             (lambda (&rest _) "ledger reg --weekly"))
-            ((symbol-function 'ledger-report-redo)
-             (lambda (&rest _) (setq ledger-report-cmd ledger-report-cmd))))
-    (let ((ledger-report-cmd "ledger bal"))
-      (ledger-report-edit-report)
-      (should (string= "ledger reg --weekly" ledger-report-cmd)))))
+  (ledger-tests-with-temp-file ""
+    (ledger-report "bal" nil)
+    (with-current-buffer ledger-report-buffer-name
+      (cl-letf (((symbol-function 'read-from-minibuffer)
+                 (lambda (&rest _) "%(binary) reg --weekly -f %(ledger-file)")))
+        (ledger-report-edit-report)
+        (should (string-match-p "reg --weekly -f " (buffer-string)))))))
 
 (ert-deftest ledger-report/edit-reports ()
   ;; Just verifies it dispatches to customize-variable.
@@ -367,44 +364,18 @@
         (should (assoc "NewReport" ledger-reports))))))
 
 (ert-deftest ledger-report/change-month ()
-  ;; Bind ledger-report-ledger-buf to a real buffer for `expand-format-specifiers'.
-  (let ((report-buf (get-buffer-create ledger-report-buffer-name))
-        (src-buf (current-buffer)))
-    (unwind-protect
-        (let ((ledger-report-current-month '(2024 . 5))
-              (ledger-report-name "X")
-              (ledger-report-ledger-buf src-buf)
-              (ledger-reports '(("X" "ledger reg --period %(month)")))
-              (ledger-report-format-specifiers
-               '(("month" . ledger-report-month-format-specifier))))
-          (cl-letf (((symbol-function 'ledger-report-redo) (lambda (&rest _) nil))
-                    ((symbol-function 'ledger-reports-custom-save)
-                     (lambda () nil)))
-            (ledger-report--change-month -1)
-            (should (equal '(2024 . 4) ledger-report-current-month))
-            (ledger-report--change-month 5)
-            (should (equal '(2024 . 9) ledger-report-current-month))))
-      (let ((kill-buffer-query-functions nil)) (kill-buffer report-buf)))))
-
-(ert-deftest ledger-report/previous-and-next-month ()
-  (let ((report-buf (get-buffer-create ledger-report-buffer-name))
-        (src-buf (current-buffer)))
-    (unwind-protect
-        (let ((ledger-report-current-month '(2024 . 6))
-              (ledger-report-name "X")
-              (ledger-report-ledger-buf src-buf)
-              (ledger-reports '(("X" "ledger reg --period %(month)")))
-              (ledger-report-format-specifiers
-               '(("month" . ledger-report-month-format-specifier))))
-          (cl-letf (((symbol-function 'ledger-report-redo) (lambda (&rest _) nil))
-                    ((symbol-function 'ledger-reports-custom-save)
-                     (lambda () nil)))
-            (ledger-report-previous-month)
-            (should (equal '(2024 . 5) ledger-report-current-month))
-            (ledger-report-next-month)
-            (should (equal '(2024 . 6) ledger-report-current-month))))
-      (let ((kill-buffer-query-functions nil)) (kill-buffer report-buf)))))
-
+  (ledger-tests-with-temp-file ""
+    (setq ledger-reports '(("X" "%(binary) reg -f %(ledger-file) --period %(month)")))
+    (ledger-report "X" nil)
+    (with-current-buffer ledger-report-buffer-name
+      (setq ledger-report-current-month '(2024 . 5))
+      (ledger-report-redo)
+      (should (string-match-p "--period 2024-5" (buffer-string)))
+      (ledger-report-next-month)
+      (should (string-match-p "--period 2024-6" (buffer-string)))
+      (dotimes (_ 6)
+        (ledger-report-previous-month))
+      (should (string-match-p "--period 2023-12" (buffer-string))))))
 
 ;;; toggle-default-commodity --------------------------------------------
 
@@ -413,16 +384,16 @@
     (should-error (ledger-report-toggle-default-commodity))))
 
 (ert-deftest ledger-report/toggle-commodity-add ()
-  (with-temp-buffer
-    (ledger-report-mode)
-    (let ((ledger-report-cmd "ledger reg")
-          (ledger-reconcile-default-commodity "USD"))
-      (cl-letf (((symbol-function 'ledger-report-redo) (lambda (&rest _) nil)))
-        (ledger-report-toggle-default-commodity)
-        (should (string-match-p "--exchange USD" ledger-report-cmd))
-        ;; Toggle off again.
-        (ledger-report-toggle-default-commodity)
-        (should-not (string-match-p "--exchange USD" ledger-report-cmd))))))
+  (ledger-tests-with-temp-file ""
+    (setq ledger-reconcile-default-commodity "USD")
+    (ledger-report "reg" nil)
+    (with-current-buffer ledger-report-buffer-name
+      (should-not (string-match-p "--exchange USD" (buffer-string)))
+      (ledger-report-toggle-default-commodity)
+      (should (string-match-p "--exchange USD" (buffer-string)))
+      ;; Toggle off again.
+      (ledger-report-toggle-default-commodity)
+      (should-not (string-match-p "--exchange USD" (buffer-string))))))
 
 
 ;;; do-report end-to-end (mocked shell) ---------------------------------
@@ -518,24 +489,24 @@ https://github.com/ledger/ledger-mode/issues/424"
   :tags '(report regress)
 
   (ledger-tests-with-temp-file demo-ledger
-                               (let ((ledger-reports
-                                      (cons '("dummy-report-name"
-                                              "%(binary) -f %(ledger-file) reg --strict --period %(month) %(account)")
-                                            ledger-reports))
-                                     (ledger-report-format-specifiers
-                                      (cl-list* '("account" . report-test--dummy-format-specifier)
-                                                ledger-report-format-specifiers))
-                                     (report-test--account-format-specifier-called-p nil))
-                                 (ledger-report "dummy-report-name" nil)
-                                 (should report-test--account-format-specifier-called-p)
-                                 ;; `ledger-report-cmd' keeps the raw template so format specifiers
-                                 ;; are re-evaluated on every run, letting saved reports respect
-                                 ;; later changes to `ledger-binary-path' and the current ledger
-                                 ;; file (issue ledger/ledger#1172).
-                                 (should (equal (buffer-local-value
-                                                 'ledger-report-cmd
-                                                 (get-buffer ledger-report-buffer-name))
-                                                "%(binary) -f %(ledger-file) reg --strict --period %(month) %(account)")))))
+    (let ((ledger-reports
+           (cons '("dummy-report-name"
+                   "%(binary) -f %(ledger-file) reg --strict --period %(month) %(account)")
+                 ledger-reports))
+          (ledger-report-format-specifiers
+           (cl-list* '("account" . report-test--dummy-format-specifier)
+                     ledger-report-format-specifiers))
+          (report-test--account-format-specifier-called-p nil))
+      (ledger-report "dummy-report-name" nil)
+      (should report-test--account-format-specifier-called-p)
+      ;; `ledger-report-cmd' keeps the raw template so format specifiers
+      ;; are re-evaluated on every run, letting saved reports respect
+      ;; later changes to `ledger-binary-path' and the current ledger
+      ;; file (issue ledger/ledger#1172).
+      (should (equal (buffer-local-value
+                      'ledger-report-cmd
+                      (get-buffer ledger-report-buffer-name))
+                     "%(binary) -f %(ledger-file) reg --strict --period %(month) %(account)")))))
 
 (ert-deftest ledger-report/binary-path-not-baked-in ()
   "Regression test for ledger/ledger#1172.
@@ -550,19 +521,19 @@ so changes to `ledger-binary-path' take effect on subsequent runs."
                  "%(binary) -f %(ledger-file) bal"))
               ((symbol-function 'ledger-do-report) #'ignore))
       (ledger-tests-with-temp-file demo-ledger
-                                   (let ((ledger-binary-path "ledger-initial"))
-                                     (ledger-report unique-name nil))
-                                   ;; The saved command must still contain the raw %(binary)
-                                   ;; specifier rather than the expanded "ledger-initial" path.
-                                   (let ((saved-cmd (car (cdr (assoc unique-name ledger-reports)))))
-                                     (should saved-cmd)
-                                     (should (string-match-p (regexp-quote "%(binary)") saved-cmd))
-                                     (should-not (string-match-p "ledger-initial" saved-cmd)))
-                                   ;; The buffer-local command is likewise the raw template.
-                                   (should (equal (buffer-local-value
-                                                   'ledger-report-cmd
-                                                   (get-buffer ledger-report-buffer-name))
-                                                  "%(binary) -f %(ledger-file) bal"))))))
+        (let ((ledger-binary-path "ledger-initial"))
+          (ledger-report unique-name nil))
+        ;; The saved command must still contain the raw %(binary)
+        ;; specifier rather than the expanded "ledger-initial" path.
+        (let ((saved-cmd (car (cdr (assoc unique-name ledger-reports)))))
+          (should saved-cmd)
+          (should (string-match-p (regexp-quote "%(binary)") saved-cmd))
+          (should-not (string-match-p "ledger-initial" saved-cmd)))
+        ;; The buffer-local command is likewise the raw template.
+        (should (equal (buffer-local-value
+                        'ledger-report-cmd
+                        (get-buffer ledger-report-buffer-name))
+                       "%(binary) -f %(ledger-file) bal"))))))
 
 (ert-deftest ledger-report/binary-path-expansion-dynamic ()
   "Regression test for ledger/ledger#1172.
@@ -571,16 +542,16 @@ invocation of `ledger-report-expand-format-specifiers', so updates
 to `ledger-binary-path' between runs are honored."
   :tags '(report regress)
   (ledger-tests-with-temp-file demo-ledger
-                               (let ((ledger-report-ledger-buf (current-buffer))
-                                     (template "%(binary) -f %(ledger-file) bal"))
-                                 (let ((ledger-binary-path "first-ledger"))
-                                   (should (string-match-p
-                                            "first-ledger"
-                                            (ledger-report-expand-format-specifiers template))))
-                                 (let ((ledger-binary-path "second-ledger"))
-                                   (let ((expanded (ledger-report-expand-format-specifiers template)))
-                                     (should (string-match-p "second-ledger" expanded))
-                                     (should-not (string-match-p "first-ledger" expanded)))))))
+    (let ((ledger-report-ledger-buf (current-buffer))
+          (template "%(binary) -f %(ledger-file) bal"))
+      (let ((ledger-binary-path "first-ledger"))
+        (should (string-match-p
+                 "first-ledger"
+                 (ledger-report-expand-format-specifiers template))))
+      (let ((ledger-binary-path "second-ledger"))
+        (let ((expanded (ledger-report-expand-format-specifiers template)))
+          (should (string-match-p "second-ledger" expanded))
+          (should-not (string-match-p "first-ledger" expanded)))))))
 
 
 ;;; Additional fill-in tests for residual gaps -------------------------
@@ -745,6 +716,31 @@ to `ledger-binary-path' between runs are honored."
         ;; buffer where it was created.
         (save-buffer)
         (should (= reports-run 2))))))
+
+(ert-deftest ledger-report/sticky-cursor ()
+  "`ledger-report-auto-refresh-sticky-cursor' preserves cursor line"
+  :tags '(report)
+  (ledger-tests-with-temp-file "
+2025-01-01 Foo
+    Expense  $1
+    Asset
+
+2025-01-02 Bar
+    Expense  $1
+    Asset"
+    (save-buffer)
+    (setq ledger-report-auto-refresh-sticky-cursor t)
+    (setq ledger-reports '(("X" "%(binary) -f %(ledger-file) payees")))
+    (ledger-report "X" nil)
+    (with-current-buffer ledger-report-buffer-name
+      (re-search-forward (rx line-start "Bar" line-end))
+      (goto-char (match-beginning 0))
+      (should (equal (buffer-substring (point) (point-max))
+                     "Bar\nFoo\n"))
+      (forward-line)
+      (should (looking-at "Foo"))
+      (ledger-report-redo)
+      (should (looking-at "Foo")))))
 
 (provide 'report-test)
 
