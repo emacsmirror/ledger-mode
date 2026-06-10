@@ -138,7 +138,7 @@
             pkgs.cmake
             pkgs.texinfo
             pkgs.lcov
-            pkgs.nixpkgs-fmt
+            pkgs.nixfmt
             pkgs.shellcheck
             pkgs.shfmt
           ];
@@ -290,7 +290,7 @@
           };
         };
 
-        formatter = pkgs.nixpkgs-fmt;
+        formatter = pkgs.nixfmt;
       }
     );
 }
