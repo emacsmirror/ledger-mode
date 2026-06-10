@@ -18,7 +18,7 @@ pre-commit:
     nix-format:
       glob: "*.nix"
       env: { LEDGER_MODE_QUIET: "1" }
-      run: nix develop --no-warn-dirty --command nixpkgs-fmt --check {staged_files}
+      run: nix develop --no-warn-dirty --command nixfmt --check {staged_files}
     shellcheck:
       glob: "*.sh"
       env: { LEDGER_MODE_QUIET: "1" }

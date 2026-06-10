@@ -6,8 +6,14 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
@@ -17,8 +23,11 @@
         # rebuilds deterministic.
         src = lib.cleanSourceWith {
           src = ./.;
-          filter = path: type:
-            let base = baseNameOf path; in
+          filter =
+            path: type:
+            let
+              base = baseNameOf path;
+            in
             !(lib.hasSuffix ".elc" base)
             && base != "result"
             && base != "coverage"
@@ -28,9 +37,13 @@
         # The Emacs we use for *building* and for *checks*.  Loaded with the
         # extra dev tooling so that a single binary covers everything.
         emacsForChecks = pkgs.emacs;
-        emacsWithTools =
-          (pkgs.emacsPackagesFor emacsForChecks).emacsWithPackages
-            (e: with e; [ package-lint elisp-autofmt undercover ]);
+        emacsWithTools = (pkgs.emacsPackagesFor emacsForChecks).emacsWithPackages (
+          e: with e; [
+            package-lint
+            elisp-autofmt
+            undercover
+          ]
+        );
 
         # Common environment for every check / shell script.  Each derivation
         # gets its own writable copy of the source so writes (e.g. coverage
@@ -41,24 +54,30 @@
           export HOME=$(mktemp -d)
         '';
 
-        mkCheck = name: attrs:
+        mkCheck =
+          name: attrs:
           pkgs.runCommand "ledger-mode-check-${name}"
-            ({
-              inherit src;
-              nativeBuildInputs = (attrs.extraInputs or [ ])
-                ++ [ emacsWithTools pkgs.bash pkgs.coreutils pkgs.diffutils ];
-            } // (attrs.env or { }))
             (
-              ''
-                set -euo pipefail
-                cp -r $src ./source
-                chmod -R u+w ./source
-                cd ./source
-                ${commonShellPrelude}
-                ${attrs.script}
-                touch $out
-              ''
-            );
+              {
+                inherit src;
+                nativeBuildInputs = (attrs.extraInputs or [ ]) ++ [
+                  emacsWithTools
+                  pkgs.bash
+                  pkgs.coreutils
+                  pkgs.diffutils
+                ];
+              }
+              // (attrs.env or { })
+            )
+            (''
+              set -euo pipefail
+              cp -r $src ./source
+              chmod -R u+w ./source
+              cd ./source
+              ${commonShellPrelude}
+              ${attrs.script}
+              touch $out
+            '');
 
       in
       {
@@ -66,46 +85,46 @@
         packages = {
           default = self.packages.${system}.ledger-mode;
 
-          ledger-mode =
-            (pkgs.emacsPackagesFor emacsForChecks).trivialBuild {
-              pname = "ledger-mode";
-              version = self.shortRev or self.dirtyShortRev or "dev";
-              inherit src;
-              packageRequires = [ ];
-              # `trivialBuild' compiles every *.el at the top level by default.
-              # Treat warnings as errors so a "successful" build really is one.
-              preBuild = ''
-                export EMACSLOADPATH="$PWD:''${EMACSLOADPATH:-}"
-                # Override the compile flags trivialBuild sets up.
-                cat > .ledger-precompile.el <<'EOF'
-                (setq byte-compile-error-on-warn t)
-                (setq byte-compile-warnings t)
-                EOF
-              '';
-              postInstall = ''
-                install -Dm644 README.md $out/share/doc/ledger-mode/README.md
-                install -Dm644 LICENSE.md $out/share/doc/ledger-mode/LICENSE.md
-                if [ -f doc/ledger-mode.info ]; then
-                  install -Dm644 doc/ledger-mode.info $out/share/info/ledger-mode.info
-                fi
-              '';
-            };
-
-          docs = pkgs.runCommand "ledger-mode-docs"
-            {
-              inherit src;
-              nativeBuildInputs = [ pkgs.texinfo ];
-            }
-            ''
-              cp -r $src ./source
-              chmod -R u+w ./source
-              cd ./source/doc
-              makeinfo --no-split ledger-mode.texi -o ledger-mode.info
-              makeinfo --html --no-split ledger-mode.texi -o ledger-mode.html
-              mkdir -p $out/share/info $out/share/doc/ledger-mode
-              install -Dm644 ledger-mode.info $out/share/info/ledger-mode.info
-              install -Dm644 ledger-mode.html $out/share/doc/ledger-mode/ledger-mode.html
+          ledger-mode = (pkgs.emacsPackagesFor emacsForChecks).trivialBuild {
+            pname = "ledger-mode";
+            version = self.shortRev or self.dirtyShortRev or "dev";
+            inherit src;
+            packageRequires = [ ];
+            # `trivialBuild' compiles every *.el at the top level by default.
+            # Treat warnings as errors so a "successful" build really is one.
+            preBuild = ''
+              export EMACSLOADPATH="$PWD:''${EMACSLOADPATH:-}"
+              # Override the compile flags trivialBuild sets up.
+              cat > .ledger-precompile.el <<'EOF'
+              (setq byte-compile-error-on-warn t)
+              (setq byte-compile-warnings t)
+              EOF
             '';
+            postInstall = ''
+              install -Dm644 README.md $out/share/doc/ledger-mode/README.md
+              install -Dm644 LICENSE.md $out/share/doc/ledger-mode/LICENSE.md
+              if [ -f doc/ledger-mode.info ]; then
+                install -Dm644 doc/ledger-mode.info $out/share/info/ledger-mode.info
+              fi
+            '';
+          };
+
+          docs =
+            pkgs.runCommand "ledger-mode-docs"
+              {
+                inherit src;
+                nativeBuildInputs = [ pkgs.texinfo ];
+              }
+              ''
+                cp -r $src ./source
+                chmod -R u+w ./source
+                cd ./source/doc
+                makeinfo --no-split ledger-mode.texi -o ledger-mode.info
+                makeinfo --html --no-split ledger-mode.texi -o ledger-mode.html
+                mkdir -p $out/share/info $out/share/doc/ledger-mode
+                install -Dm644 ledger-mode.info $out/share/info/ledger-mode.info
+                install -Dm644 ledger-mode.html $out/share/doc/ledger-mode/ledger-mode.html
+              '';
         };
 
         # ------------------------------------------------------------- devShell
@@ -146,14 +165,23 @@
         # ----------------------------------------------------------------- apps
         apps =
           let
-            mkScript = name: text:
+            mkScript =
+              name: text:
               let
                 drv = pkgs.writeShellApplication {
                   inherit name text;
-                  runtimeInputs = [ emacsWithTools pkgs.coreutils pkgs.diffutils pkgs.bash ];
+                  runtimeInputs = [
+                    emacsWithTools
+                    pkgs.coreutils
+                    pkgs.diffutils
+                    pkgs.bash
+                  ];
                 };
               in
-              { type = "app"; program = "${drv}/bin/${name}"; };
+              {
+                type = "app";
+                program = "${drv}/bin/${name}";
+              };
           in
           {
             default = self.apps.${system}.format;
@@ -239,31 +267,30 @@
           build = self.packages.${system}.ledger-mode;
 
           # All shell scripts must be free of shellcheck warnings.
-          shellcheck = pkgs.runCommand "ledger-mode-shellcheck"
-            {
-              inherit src;
-              nativeBuildInputs = [ pkgs.shellcheck ];
-            }
-            ''
-              cd $src
-              shellcheck tools/*.sh
-              touch $out
-            '';
+          shellcheck =
+            pkgs.runCommand "ledger-mode-shellcheck"
+              {
+                inherit src;
+                nativeBuildInputs = [ pkgs.shellcheck ];
+              }
+              ''
+                cd $src
+                shellcheck tools/*.sh
+                touch $out
+              '';
 
-          # Nix files are nixpkgs-fmt-clean.
-          nix-format = pkgs.runCommand "ledger-mode-nix-format"
-            {
-              inherit src;
-              nativeBuildInputs = [ pkgs.nixpkgs-fmt ];
-            }
-            ''
+          # Nix files are nixfmt-clean.
+          nix-format = mkCheck "nix-format" {
+            extraInputs = [ pkgs.nixfmt ];
+            script = ''
               cd $src
-              nixpkgs-fmt --check flake.nix nix/*.nix 2>/dev/null || \
-                nixpkgs-fmt --check flake.nix
+              nixfmt --check **.nix nix/*.nix
               touch $out
             '';
+          };
         };
 
         formatter = pkgs.nixpkgs-fmt;
-      });
+      }
+    );
 }
